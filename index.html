@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>誰是臥底：多人連線版</title>
+    <title>誰是臥底：自動選題版</title>
     <style>
         :root { --primary: #6c5ce7; --bg: #f0f2f5; }
         body { font-family: -apple-system, sans-serif; background: var(--bg); text-align: center; padding: 20px; color: #2d3436; }
@@ -11,6 +11,7 @@
         input { padding: 12px; margin: 8px 0; border: 1px solid #dfe6e9; border-radius: 8px; width: 90%; font-size: 16px; }
         button { padding: 12px 25px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; width: 90%; transition: 0.3s; margin-top: 10px; }
         button:active { transform: scale(0.98); }
+        .btn-suggest { background: #fab1a0; color: #d63031; font-weight: bold; margin-bottom: 10px; }
         #wordDisplay { font-size: 2.2em; margin: 30px 0; color: #d63031; font-weight: bold; min-height: 1.5em; border: 2px dashed #fab1a0; border-radius: 10px; line-height: 1.5; display: flex; align-items: center; justify-content: center; }
         .hidden { display: none; }
         .player-list { text-align: left; background: #f9f9f9; padding: 10px; border-radius: 8px; margin: 10px 0; }
@@ -23,7 +24,7 @@
     <div id="homeScreen" class="card-box">
         <h3>遊戲準備</h3>
         <input type="text" id="playerName" placeholder="你的暱稱">
-        <input type="text" id="roomInput" placeholder="房間代碼 (例如: 1234)">
+        <input type="text" id="roomInput" placeholder="房間代碼">
         <button onclick="joinRoom()">進入房間</button>
     </div>
 
@@ -33,11 +34,12 @@
         
         <div id="hostControls" class="hidden">
             <hr>
-            <p><strong>你是房主，請設定題目：</strong></p>
-            <input type="text" id="normalWord" placeholder="平民詞 (如: 珍珠奶茶)">
-            <input type="text" id="spyWord" placeholder="臥底詞 (如: 絲襪奶茶)">
+            <p><strong>房主工具：</strong></p>
+            <button class="btn-suggest" onclick="suggestWords()">🎲 幫我建議題目</button>
+            <input type="text" id="normalWord" placeholder="平民詞">
+            <input type="text" id="spyWord" placeholder="臥底詞">
             <p>臥底人數：<input type="number" id="spyCount" value="1" style="width: 60px;"></p>
-            <button onclick="hostStartGame()" style="background: #00b894;">派發題目 (開始遊戲)</button>
+            <button onclick="hostStartGame()" style="background: #00b894;">開始遊戲</button>
         </div>
         
         <div id="guestMsg" style="color: #636e72; margin-top: 20px;">等待房主開始...</div>
@@ -46,17 +48,10 @@
     <div id="gameScreen" class="card-box hidden">
         <h3>你的身份詞彙</h3>
         <div id="wordDisplay">長按下方按鈕查看</div>
-        <button 
-            onmousedown="showWord()" onmouseup="hideWord()" 
-            ontouchstart="showWord()" ontouchend="hideWord()" 
-            style="background: #fdcb6e; color: #2d3436; font-weight: bold;">
-            按住查看詞彙
-        </button>
-        <p style="font-size: 0.85em; color: #636e72; margin-top: 15px;">※ 鬆開按鈕即會自動隱藏，保護隱私。</p>
-        
+        <button onmousedown="showWord()" onmouseup="hideWord()" ontouchstart="showWord()" ontouchend="hideWord()" style="background: #fdcb6e; color: #2d3436; font-weight: bold;">按住查看詞彙</button>
         <div id="hostEndControls" class="hidden">
             <hr>
-            <button onclick="resetGame()" style="background: #d63031;">結束本局 / 返回大廳</button>
+            <button onclick="resetGame()" style="background: #d63031;">結束本局</button>
         </div>
     </div>
 
@@ -64,7 +59,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // 這是你的設定資訊
         const firebaseConfig = {
             apiKey: "AIzaSyAirxjbcYH3-rvpCPiGXJJs7M6TkSz2jkc",
             authDomain: "spy-game-f76b1.firebaseapp.com",
@@ -73,59 +67,62 @@
             messagingSenderId: "140570387994",
             appId: "1:140570387994:web:69d04bf1b83972441593a3",
             measurementId: "G-3Z068PW5PY",
-            databaseURL: "https://spy-game-f76b1-default-rtdb.firebaseio.com/" // 自動補上的資料庫網址
+            databaseURL: "https://spy-game-f76b1-default-rtdb.firebaseio.com/"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+        let currentRoom = "", myName = "", myRoleWord = "";
 
-        let currentRoom = "";
-        let myName = "";
-        let myRoleWord = "";
+        // 內建題庫
+        const questionBank = [
+            ["珍珠奶茶", "絲襪奶茶"], ["泡麵", "螺螄粉"], ["漢堡", "三明治"],
+            ["火鍋", "麻辣燙"], ["咖啡", "奶茶"], ["自行車", "電動車"],
+            ["微信", "支付寶"], ["淘寶", "蝦皮"], ["電影", "電視劇"],
+            ["健身房", "運動場"], ["森林", "公園"], ["月亮", "太陽"],
+            ["筆記本", "教科書"], ["耳機", "音箱"], ["雨傘", "雨衣"],
+            ["游泳", "衝浪"], ["可口可樂", "百事可樂"], ["炸雞", "烤鴨"],
+            ["草莓", "櫻桃"], ["辣椒", "芥末"]
+        ];
 
-        // 加入房間邏輯
+        window.suggestWords = function() {
+            const rand = Math.floor(Math.random() * questionBank.length);
+            const pair = questionBank[rand];
+            // 隨機決定哪個是平民詞，哪個是臥底詞
+            if (Math.random() > 0.5) {
+                document.getElementById('normalWord').value = pair[0];
+                document.getElementById('spyWord').value = pair[1];
+            } else {
+                document.getElementById('normalWord').value = pair[1];
+                document.getElementById('spyWord').value = pair[0];
+            }
+        };
+
         window.joinRoom = function() {
             currentRoom = document.getElementById('roomInput').value.trim();
             myName = document.getElementById('playerName').value.trim();
             if (!currentRoom || !myName) return alert("請輸入暱稱與房號");
-
             const roomRef = ref(db, 'rooms/' + currentRoom);
-            
             onValue(roomRef, (snapshot) => {
                 const data = snapshot.val();
                 if (!data) {
-                    // 第一個進房的人自動變成房主
-                    set(roomRef, { 
-                        host: myName, 
-                        status: "waiting", 
-                        players: { [myName]: true } 
-                    });
+                    set(roomRef, { host: myName, status: "waiting", players: { [myName]: true } });
                 } else {
-                    // 加入現有玩家清單
                     update(ref(db, `rooms/${currentRoom}/players`), { [myName]: true });
                     syncUI(data);
                 }
             });
-
             document.getElementById('homeScreen').classList.add('hidden');
             document.getElementById('lobbyScreen').classList.remove('hidden');
             document.getElementById('displayRoomId').innerText = currentRoom;
         };
 
-        // 同步所有人的畫面
         function syncUI(data) {
             const players = Object.keys(data.players || {});
             document.getElementById('playerList').innerHTML = "目前玩家 (" + players.length + ")：<br>● " + players.join("<br>● ");
-            
-            // 房主權限判斷
-            if (data.host === myName) {
-                document.getElementById('hostControls').classList.remove('hidden');
-                document.getElementById('guestMsg').classList.add('hidden');
-            }
-
-            // 切換遊戲狀態
+            if (data.host === myName) document.getElementById('hostControls').classList.remove('hidden');
             if (data.status === "playing" && data.assignments) {
-                myRoleWord = data.assignments[myName] || "你不在本局名單中";
+                myRoleWord = data.assignments[myName] || "觀戰中";
                 document.getElementById('lobbyScreen').classList.add('hidden');
                 document.getElementById('gameScreen').classList.remove('hidden');
                 if (data.host === myName) document.getElementById('hostEndControls').classList.remove('hidden');
@@ -135,42 +132,26 @@
             }
         }
 
-        // 房主按下開始遊戲
         window.hostStartGame = function() {
             const normal = document.getElementById('normalWord').value;
             const spy = document.getElementById('spyWord').value;
             const spyCount = parseInt(document.getElementById('spyCount').value);
-            if (!normal || !spy) return alert("請輸入詞彙");
-
+            if (!normal || !spy) return alert("請先輸入或選取題目");
             onValue(ref(db, `rooms/${currentRoom}/players`), (snap) => {
                 const players = Object.keys(snap.val());
-                if (spyCount >= players.length) return alert("臥底人數太多了！");
-
                 let cards = [];
                 for(let i=0; i<spyCount; i++) cards.push(spy);
                 while(cards.length < players.length) cards.push(normal);
-                
-                // 隨機洗牌
                 cards.sort(() => Math.random() - 0.5);
-
                 let assignments = {};
                 players.forEach((p, i) => assignments[p] = cards[i]);
-
-                update(ref(db, 'rooms/' + currentRoom), {
-                    status: "playing",
-                    assignments: assignments
-                });
+                update(ref(db, 'rooms/' + currentRoom), { status: "playing", assignments: assignments });
             }, { onlyOnce: true });
         };
 
-        // 查看詞彙功能
         window.showWord = function() { document.getElementById('wordDisplay').innerText = myRoleWord; };
         window.hideWord = function() { document.getElementById('wordDisplay').innerText = "長按下方按鈕查看"; };
-
-        // 重置遊戲
-        window.resetGame = function() {
-            update(ref(db, 'rooms/' + currentRoom), { status: "waiting", assignments: null });
-        };
+        window.resetGame = function() { update(ref(db, 'rooms/' + currentRoom), { status: "waiting", assignments: null }); };
     </script>
 </body>
 </html>
