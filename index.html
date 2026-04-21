@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>誰是臥底：自動選題版</title>
+    <title>誰是臥底：進化學習版</title>
     <style>
         :root { --primary: #6c5ce7; --bg: #f0f2f5; }
         body { font-family: -apple-system, sans-serif; background: var(--bg); text-align: center; padding: 20px; color: #2d3436; }
@@ -15,11 +15,12 @@
         #wordDisplay { font-size: 2.2em; margin: 30px 0; color: #d63031; font-weight: bold; min-height: 1.5em; border: 2px dashed #fab1a0; border-radius: 10px; line-height: 1.5; display: flex; align-items: center; justify-content: center; }
         .hidden { display: none; }
         .player-list { text-align: left; background: #f9f9f9; padding: 10px; border-radius: 8px; margin: 10px 0; }
+        .badge { background: #55efc4; color: #00b894; font-size: 0.7em; padding: 2px 8px; border-radius: 10px; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-    <h1>🕵️ 誰是臥底</h1>
+    <h1>🕵️ 誰是臥底 <span style="font-size: 0.5em; vertical-align: middle; color: #6c5ce7;">v2.0 進化版</span></h1>
 
     <div id="homeScreen" class="card-box">
         <h3>遊戲準備</h3>
@@ -35,11 +36,12 @@
         <div id="hostControls" class="hidden">
             <hr>
             <p><strong>房主工具：</strong></p>
-            <button class="btn-suggest" onclick="suggestWords()">🎲 幫我建議題目</button>
+            <button class="btn-suggest" id="suggestBtn" onclick="suggestWords()">🎲 建議題目 (讀取雲端...)</button>
             <input type="text" id="normalWord" placeholder="平民詞">
             <input type="text" id="spyWord" placeholder="臥底詞">
             <p>臥底人數：<input type="number" id="spyCount" value="1" style="width: 60px;"></p>
             <button onclick="hostStartGame()" style="background: #00b894;">開始遊戲</button>
+            <p style="font-size: 0.7em; color: #b2bec3;">※ 開始後題目會自動貢獻到全球題庫</p>
         </div>
         
         <div id="guestMsg" style="color: #636e72; margin-top: 20px;">等待房主開始...</div>
@@ -57,8 +59,9 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, get, child } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+        // 你的 Firebase 設定 (請確保 apiKey 正確)
         const firebaseConfig = {
             apiKey: "AIzaSyAirxjbcYH3-rvpCPiGXJJs7M6TkSz2jkc",
             authDomain: "spy-game-f76b1.firebaseapp.com",
@@ -74,30 +77,71 @@
         const db = getDatabase(app);
         let currentRoom = "", myName = "", myRoleWord = "";
 
-        // 內建題庫
-        const questionBank = [
-            ["珍珠奶茶", "絲襪奶茶"], ["泡麵", "螺螄粉"], ["漢堡", "三明治"],
-            ["火鍋", "麻辣燙"], ["咖啡", "奶茶"], ["自行車", "電動車"],
-            ["微信", "支付寶"], ["淘寶", "蝦皮"], ["電影", "電視劇"],
-            ["健身房", "運動場"], ["森林", "公園"], ["月亮", "太陽"],
-            ["筆記本", "教科書"], ["耳機", "音箱"], ["雨傘", "雨衣"],
-            ["游泳", "衝浪"], ["可口可樂", "百事可樂"], ["炸雞", "烤鴨"],
-            ["草莓", "櫻桃"], ["辣椒", "芥末"]
+        // 1. 基礎保底題庫
+        const localBank = [
+            ["珍珠奶茶", "絲襪奶茶"], ["泡麵", "螺螄粉"], ["漢堡", "三明治"], ["可口可樂", "百事可樂"]
         ];
 
-        window.suggestWords = function() {
-            const rand = Math.floor(Math.random() * questionBank.length);
-            const pair = questionBank[rand];
-            // 隨機決定哪個是平民詞，哪個是臥底詞
-            if (Math.random() > 0.5) {
-                document.getElementById('normalWord').value = pair[0];
-                document.getElementById('spyWord').value = pair[1];
-            } else {
-                document.getElementById('normalWord').value = pair[1];
-                document.getElementById('spyWord').value = pair[0];
+        // 2. 核心功能：建議題目（優先從雲端抓取）
+        window.suggestWords = async function() {
+            const btn = document.getElementById('suggestBtn');
+            btn.innerText = "🔍 搜尋雲端中...";
+            
+            try {
+                const snapshot = await get(child(ref(db), 'global_library'));
+                let pair;
+
+                if (snapshot.exists()) {
+                    const allWords = Object.values(snapshot.val());
+                    pair = allWords[Math.floor(Math.random() * allWords.length)];
+                    console.log("從雲端獲取題目成功");
+                } else {
+                    pair = localBank[Math.floor(Math.random() * localBank.length)];
+                    console.log("雲端無題目，使用保底題庫");
+                }
+
+                // 隨機分配平民/臥底
+                if (Math.random() > 0.5) {
+                    document.getElementById('normalWord').value = pair.n || pair[0];
+                    document.getElementById('spyWord').value = pair.s || pair[1];
+                } else {
+                    document.getElementById('normalWord').value = pair.s || pair[1];
+                    document.getElementById('spyWord').value = pair.n || pair[0];
+                }
+            } catch (error) {
+                alert("連線失敗，請檢查 Firebase Rules 設定！");
+            } finally {
+                btn.innerText = "🎲 建議下一個題目";
             }
         };
 
+        // 3. 核心功能：開始遊戲 + 自動學習
+        window.hostStartGame = function() {
+            const normal = document.getElementById('normalWord').value.trim();
+            const spy = document.getElementById('spyWord').value.trim();
+            const spyCount = parseInt(document.getElementById('spyCount').value);
+
+            if (!normal || !spy) return alert("請輸入或選取題目");
+
+            // --- 學習能力：儲存到雲端總庫 ---
+            // 使用詞彙組合當作 ID，避免重複儲存相同的題目
+            const wordId = btoa(encodeURIComponent(normal + "_" + spy)).substring(0, 20);
+            update(ref(db, 'global_library/' + wordId), { n: normal, s: spy });
+
+            onValue(ref(db, `rooms/${currentRoom}/players`), (snap) => {
+                const players = Object.keys(snap.val());
+                let cards = [];
+                for(let i=0; i<spyCount; i++) cards.push(spy);
+                while(cards.length < players.length) cards.push(normal);
+                cards.sort(() => Math.random() - 0.5);
+                
+                let assignments = {};
+                players.forEach((p, i) => assignments[p] = cards[i]);
+                update(ref(db, 'rooms/' + currentRoom), { status: "playing", assignments: assignments });
+            }, { onlyOnce: true });
+        };
+
+        // --- 以下為基礎連線邏輯 (與前版相同) ---
         window.joinRoom = function() {
             currentRoom = document.getElementById('roomInput').value.trim();
             myName = document.getElementById('playerName').value.trim();
@@ -131,23 +175,6 @@
                 document.getElementById('lobbyScreen').classList.remove('hidden');
             }
         }
-
-        window.hostStartGame = function() {
-            const normal = document.getElementById('normalWord').value;
-            const spy = document.getElementById('spyWord').value;
-            const spyCount = parseInt(document.getElementById('spyCount').value);
-            if (!normal || !spy) return alert("請先輸入或選取題目");
-            onValue(ref(db, `rooms/${currentRoom}/players`), (snap) => {
-                const players = Object.keys(snap.val());
-                let cards = [];
-                for(let i=0; i<spyCount; i++) cards.push(spy);
-                while(cards.length < players.length) cards.push(normal);
-                cards.sort(() => Math.random() - 0.5);
-                let assignments = {};
-                players.forEach((p, i) => assignments[p] = cards[i]);
-                update(ref(db, 'rooms/' + currentRoom), { status: "playing", assignments: assignments });
-            }, { onlyOnce: true });
-        };
 
         window.showWord = function() { document.getElementById('wordDisplay').innerText = myRoleWord; };
         window.hideWord = function() { document.getElementById('wordDisplay').innerText = "長按下方按鈕查看"; };
